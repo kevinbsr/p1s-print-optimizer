@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Flea → Run script: otimiza os .3mf selecionados para a Bambu Lab P1S em segundo plano.
+exec "$HOME/.local/bin/p1s-otimizar" --launch "$@"

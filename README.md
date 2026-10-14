@@ -11,13 +11,15 @@ com camada de 0,12 mm no lugar de 0,16/0,20 mm. Detalhes em
 
 ## O que faz
 
-- Lê projetos `.3mf` (inclusive de A1, X1C, P1P) e mostra impressora, perfis,
+- Lê projetos `.3mf` (inclusive de A1, X1C, P1P), além de `.stl`, `.obj` e `.step`
+  (montados como projeto da P1S), e mostra impressora, perfis,
   filamentos, placas e pinturas de cor/suporte/costura.
 - Fatia o original como linha de base e mede gramas por tipo de extrusão
   (parede, preenchimento, suporte, torre…), tempo e altura de cada placa.
 - Converte para a P1S com os perfis **oficiais** instalados, aplicando o perfil
-  "qualidade com baixo custo", e testa variações de suporte.
-- Escolhe a variação com menos suporte, grava o projeto final marcando no Bambu
+  "qualidade com baixo custo", e testa variações de suporte e a camada original.
+- Mantém o suporte desligado em projetos que não o usam (peças articuladas).
+- Escolhe a variação de menor custo (gramas + suporte + tempo de máquina), grava o projeto final marcando no Bambu
   Studio o que foi alterado, re-fatia o arquivo final para confirmar os números e
   gera relatório (Markdown, JSON e imagens dos suportes).
 - Opcionalmente cria uma versão de 1 cor de projetos multicor.
@@ -62,6 +64,18 @@ $S finalize /tmp/p1s/x/out.3mf "Otimizado P1S/peca.3mf"
 
 `$S --help` e `$S <comando> --help` listam todas as opções.
 
+## Atalho no Flea (opcional)
+
+```bash
+extras/flea/install.sh
+```
+
+Adiciona ao menu do botão direito do [Flea](https://github.com/thisisgm/flea)
+**Run script → Otimizar para P1S** e **Otimizar para P1S (resistente)** (gyroid 10%).
+As peças selecionadas (ou os modelos de uma pasta) são otimizadas em segundo plano,
+uma execução por vez e com prioridade baixa; o resultado vai para `Otimizado P1S/` ao
+lado de cada peça e o resumo chega por notificação. Logs em `~/.cache/p1s-otimizar/`.
+
 ## Estrutura
 
 ```
@@ -90,7 +104,8 @@ JSON, altere `overrides` e passe `--profile`.
 - Os números são do fatiador; a skill não imprime nem abre a interface gráfica.
   Imprima uma peça de teste antes de produzir em lote.
 - Preenchimento lightning deixa a peça mais leve e menos resistente a quedas.
-- Aceita apenas projetos `.3mf`; para STL, importe no Bambu Studio e salve como projeto antes.
+- STL/OBJ/STEP entram na orientação do arquivo, com suporte ligado; para peças
+  articuladas, use `--support off`.
 - Por segurança, máquina e filamento sempre vêm dos perfis oficiais; G-code
   personalizado embutido no 3MF original é descartado.
 

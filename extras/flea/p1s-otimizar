@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Otimiza para a Bambu Lab P1S os .3mf/.stl/.obj/.step recebidos (arquivos ou pastas), usando o fluxo
+# automático da skill p1s-print-optimizer. Grava em "<pasta>/Otimizado P1S/" e avisa
+# por notificação. Pensado para rodar em segundo plano (ver "p1s-otimizar --launch",
+# usado pelo menu "Run script" do Flea).
+set -uo pipefail
+
+here="$(dirname "$(readlink -f "$0")")"
+OPT="${P1S_OPT:-$here/../../skills/p1s-print-optimizer/scripts/p1s-opt}"
+[[ -x "$OPT" ]] || OPT="$HOME/.claude/skills/p1s-print-optimizer/scripts/p1s-opt"
+STATE="${XDG_CACHE_HOME:-$HOME/.cache}/p1s-otimizar"
+DEST_NAME="Otimizado P1S"
+EXTS="3mf|stl|obj|step|stp"
+mkdir -p "$STATE"
+
+launch=0 opts=()
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --launch) launch=1 ;;
+    --robusto) opts+=(--robusto) ;;
+    *) echo "opção desconhecida: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+notify() { notify-send -a "Otimizador P1S" -i printer "$@" 2>/dev/null || true; }
+
+# Lista os .3mf: arquivos diretos e os .3mf do primeiro nível de pastas selecionadas,
+# ignorando o que já está numa pasta de resultado.
+collect() {
+  local p
+  for p in "$@"; do
+    if [[ -d "$p" ]]; then
+      find "$p" -maxdepth 1 -type f -regextype posix-extended -iregex ".*\.($EXTS)" -print0
+    elif [[ -f "$p" && "${p,,}" =~ \.($EXTS)$ ]]; then
+      printf '%s\0' "$(realpath "$p")"
+    fi
+  done | while IFS= read -r -d '' f; do
+    [[ "$(basename "$(dirname "$f")")" == "$DEST_NAME" ]] || printf '%s\0' "$(realpath "$f")"
+  done | sort -zu
+}
+
+if (( launch )); then
+  mapfile -d '' files < <(collect "$@")
+  if (( ${#files[@]} == 0 )); then
+    echo "Nenhum arquivo .3mf, .stl, .obj ou .step na seleção" >&2
+    exit 1
+  fi
+  # Unidade transitória do systemd: sobrevive ao fechamento do Flea, com prioridade
+  # baixa de CPU e disco para não travar a sessão durante os fatiamentos.
+  exec systemd-run --user --quiet --collect --unit "p1s-otimizar-$(date +%Y%m%d-%H%M%S)-$$" \
+    --description "Otimizador P1S" -p Nice=10 -p IOSchedulingClass=idle \
+    --setenv=PATH="$PATH" "$(realpath "$0")" "${opts[@]}" "${files[@]}"
+fi
+
+mapfile -d '' files < <(collect "$@")
+(( ${#files[@]} )) || { echo "nenhum arquivo compatível" >&2; exit 1; }
+mode=""; (( ${#opts[@]} )) && mode=" (resistente)"
+
+run="$STATE/$(date +%Y%m%d-%H%M%S)-$$"
+mkdir -p "$run"
+log="$run/log.txt"
+
+# Uma otimização por vez: cada fatiamento usa vários GB de memória.
+exec 9>"$STATE/lock"
+if ! flock -n 9; then
+  notify "Otimização na fila" "${#files[@]} peça(s) aguardando a otimização em andamento."
+  flock 9
+fi
+
+names=$(printf '%s\n' "${files[@]}" | xargs -d '\n' -n1 basename | head -5 | paste -sd ',' | sed 's/,/, /g')
+(( ${#files[@]} > 5 )) && names+=" e mais $(( ${#files[@]} - 5 ))"
+notify "Otimizando ${#files[@]} peça(s) para a P1S$mode" "$names"
+
+ok=0 fail=0 summary=""
+declare -A groups
+for f in "${files[@]}"; do groups["$(dirname "$f")"]+="$f"$'\n'; done
+
+i=0
+for dir in "${!groups[@]}"; do
+  i=$((i + 1))
+  # Os 3MF são dados não confiáveis: trabalhar sobre cópias, fora da pasta do projeto.
+  in="$run/g$i/in"
+  mkdir -p "$in"
+  n=0
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    cp -- "$f" "$in/" && n=$((n + 1))
+  done <<<"${groups[$dir]}"
+  dest="$dir/$DEST_NAME"
+  echo "=== $dir ($n arquivo(s))" >>"$log"
+  if "$OPT" auto "$in"/* "${opts[@]}" --dest "$dest" --work "$run/g$i/work" >>"$log" 2>&1; then
+    ok=$((ok + n))
+    rep="$dest/_relatorio/relatorio.md"
+    line=$(grep -m1 '^| \*\*Total' "$rep" 2>/dev/null | tr -d '*' | awk -F'|' '{gsub(/^ +| +$/, "", $3); gsub(/^ +| +$/, "", $4); print $3 " → " $4}')
+    delta=$(grep -m1 '^Filamento ' "$rep" 2>/dev/null)
+    summary+="$(basename "$dir"): ${line:-ok}"$'\n'"${delta}"$'\n'
+    rm -rf "$run/g$i/work" "$in"
+  else
+    fail=$((fail + n))
+    summary+="$(basename "$dir"): falhou"$'\n'
+  fi
+done
+
+if (( fail == 0 )); then
+  notify "Otimização concluída$mode · $ok peça(s)" "${summary}Resultados em \"$DEST_NAME/\""
+else
+  notify -u critical "Otimização com falhas · $fail de $((ok + fail))" "${summary}Log: $log"
+fi
+(( fail == 0 ))

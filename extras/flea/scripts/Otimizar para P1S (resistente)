@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Flea → Run script: como "Otimizar para P1S", com preenchimento gyroid 10% (chaveiros, brinquedos, peças que caem).
+exec "$HOME/.local/bin/p1s-otimizar" --launch --robusto "$@"

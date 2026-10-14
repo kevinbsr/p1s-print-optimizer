@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 — 2026-10-14
+
+- `auto` mantém o suporte desligado quando o original não usa suporte (peças
+  articuladas); `--support auto|on|off`.
+- `auto` testa também a camada original, com o processo oficial dela, e escolhe
+  pelo custo (gramas + suporte + `--g-por-hora`); relatório com tabela de variantes
+  e aviso quando o tempo sobe.
+- Correção: gramas por tipo de extrusão contavam o avanço após cada retração,
+  inflando os valores em 30–75%. Totais por placa não eram afetados.
+- Entrada `.stl`, `.obj` e `.step`; peças maiores que a mesa são recusadas.
+- Opções `--robusto` e `--set` no `auto`; `finalize` com saída legível.
+- Atalho opcional para o Flea em `extras/flea/`.
+
 ## 0.1.0 — 2026-10-14
 
 Primeira versão.
