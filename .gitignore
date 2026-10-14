@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.3mf
+*.gcode
+*.stl
+_datadir/
+*-workspace/
