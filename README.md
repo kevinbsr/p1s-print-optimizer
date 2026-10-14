@@ -94,6 +94,11 @@ JSON, altere `overrides` e passe `--profile`.
 - Por segurança, máquina e filamento sempre vêm dos perfis oficiais; G-code
   personalizado embutido no 3MF original é descartado.
 
+## Complementos
+
+- [orcamento-impressao-3d](https://github.com/kevinbsr/orcamento-impressao-3d): transforma os projetos
+  otimizados em orçamento e verifica se a licença do modelo permite vender as impressões.
+
 ## Licença
 
 MIT. Ver [LICENSE](LICENSE).
