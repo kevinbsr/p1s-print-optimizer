@@ -11,7 +11,7 @@ Subcomandos:
   setproj   altera chaves do project_settings.config de um 3MF
   strip-paint  remove pintura (cor, suporte ou costura) de um 3MF
   finalize  marca os ajustes alterados no projeto fatiado e copia para o destino
-  auto      fluxo completo: base, candidatos de suporte, escolha, verificação e relatório
+  auto      fluxo completo: base, variantes (suporte × camada), escolha por custo, verificação e relatório
 
 Os 3MF baixados são dados não confiáveis: o script nunca executa nada que venha
 deles e as configurações de máquina e filamento vêm sempre dos perfis oficiais
@@ -108,19 +108,54 @@ def write_preset(t, name, path, overrides=None):
     return path
 
 
+LAYER_PRESET_ORDER = ("Optimal", "Standard", "Fine", "Extra Fine", "Draft")
+
+
+def process_for_layer(proc, layer):
+    """Processo oficial da mesma família (sufixo @...) com a altura de camada pedida."""
+    try:
+        if abs(float(flat("process", proc).get("layer_height", 0)) - float(layer)) < 1e-6:
+            return proc
+    except (KeyError, ValueError):
+        pass
+    suffix = proc.split(" @", 1)[1] if " @" in proc else ""
+    pre = f"{float(layer):.2f}mm "
+    names = [n for (t, n) in index() if t == "process" and n.startswith(pre) and n.endswith(" @" + suffix)]
+    if not names:
+        return None
+
+    def rank(n):
+        label = n[len(pre):n.rfind(" @")]
+        return (LAYER_PRESET_ORDER.index(label) if label in LAYER_PRESET_ORDER else 99, n)
+    return sorted(names, key=rank)[0]
+
+
 def load_profile(path):
     with open(path or DEFAULT_PROFILE, encoding="utf-8") as f:
         return json.load(f)
 
 
-def build_presets(profile, outdir, candidate=None, extra=None):
+def build_presets(profile, outdir, candidate=None, extra=None, layer=None):
+    """Gera máquina e processo. Com `layer` (ou layer_height em extra), a base passa a ser
+    o processo oficial dessa camada, que já traz as camadas de topo/fundo adequadas."""
     os.makedirs(outdir, exist_ok=True)
+    extra = dict(extra or {})
+    layer = layer or extra.pop("layer_height", None)
+    proc = profile["process"]
+    if layer:
+        alt = process_for_layer(proc, layer)
+        if alt:
+            proc = alt
+        else:
+            log(f"aviso: sem processo oficial de {layer} mm na família de '{proc}'; só layer_height muda")
+            extra["layer_height"] = layer
     ov = dict(profile["overrides"])
     if candidate:
         ov.update(profile["support_candidates"][candidate])
-    ov.update(extra or {})
+    ov.update(extra)
     m = write_preset("machine", profile["machine"], os.path.join(outdir, "machine.json"))
-    p = write_preset("process", profile["process"], os.path.join(outdir, f"process_{candidate or 'base'}.json"), ov)
+    tag = (candidate or "base") + (f"@{layer}" if layer else "")
+    p = write_preset("process", proc, os.path.join(outdir, f"process_{tag}.json"), ov)
     return m, p
 
 
@@ -205,9 +240,9 @@ def inspect(path):
 
 
 # ---------------------------------------------------------------- CLI do Bambu Studio
-def run_bambu(src, outdir, datadir, settings=None, filaments=None, slice_=True, export="out.3mf"):
+def run_bambu(src, outdir, datadir, settings=None, filaments=None, slice_=True, export="out.3mf", extra=()):
     os.makedirs(outdir, exist_ok=True)
-    cmd = [BAMBU, "--datadir", datadir, "--debug", "2"]
+    cmd = [BAMBU, "--datadir", datadir, "--debug", "2", *extra]
     if settings:
         cmd += ["--load-settings", ";".join(settings)]
     if filaments:
@@ -239,6 +274,7 @@ NUM = re.compile(r" E(-?[\d.]+)")
 
 def analyze_gcode(path):
     feat, rel, last, maxz = "?", True, 0.0, 0.0
+    retracted = 0.0  # filamento recolhido; o avanço que o devolve não é extrusão nova
     ext, hdr = {}, {}
     density, diam = [1.24], 1.75
     with open(path, errors="replace") as f:
@@ -274,8 +310,13 @@ def analyze_gcode(path):
                         e = float(m.group(1))
                         if not rel:
                             e, last = e - last, e
-                        if e > 0:
-                            ext[feat] = ext.get(feat, 0.0) + e
+                        if e < 0:
+                            retracted -= e
+                        elif e > 0:
+                            back = min(e, retracted)
+                            retracted -= back
+                            if e > back:
+                                ext[feat] = ext.get(feat, 0.0) + e - back
                 elif line.startswith("G92") and " E" in line:
                     last = 0.0
     k = math.pi * (diam / 2) ** 2 * (sum(density) / len(density)) / 1000
@@ -461,8 +502,63 @@ def slice_variant(src, wdir, datadir, settings, filaments, need_tower):
     return out, wdir
 
 
+MESH_EXTS = (".stl", ".obj", ".step", ".stp", ".amf")
+# Linha de base para malhas soltas: o que a P1S faria com o perfil padrão do Bambu Studio.
+MESH_BASE_PROCESS = "0.20mm Standard @BBL X1C"
+MESH_BASE_SUPPORT = {"enable_support": "1", "support_type": "tree(auto)"}
+
+
+def import_mesh(src, outdir, datadir, prof):
+    """Monta um projeto 3MF da P1S a partir de STL/OBJ/STEP, na orientação do arquivo."""
+    os.makedirs(outdir, exist_ok=True)
+    m = write_preset("machine", prof["machine"], os.path.join(outdir, "machine.json"))
+    p = write_preset("process", MESH_BASE_PROCESS, os.path.join(outdir, "process.json"), MESH_BASE_SUPPORT)
+    f = write_preset("filament", prof["default_filament"], os.path.join(outdir, "filament.json"))
+    out = run_bambu(src, outdir, datadir, [m, p], [f], slice_=False, export="import.3mf",
+                    extra=("--arrange", "1", "--orient", "0"))
+    if "can not be arranged inside plate" in open(os.path.join(outdir, "log.txt"), errors="replace").read():
+        raise RuntimeError(f"{os.path.basename(src)} não cabe na mesa da P1S (área útil ~250 × 250 mm)")
+    return out
+
+
+def is_support_key(k):
+    return k.startswith(("support_", "tree_support_")) or k == "enable_support"
+
+
+def score(total, g_per_hour):
+    """Custo comparável: gramas + suporte (de novo, pelo trabalho de remoção e marcas)
+    + horas de máquina convertidas em gramas."""
+    return total["peso_g"] + total["suporte_g"] + g_per_hour * total["segundos"] / 3600
+
+
+def plan_variants(prof, info, names, support_mode):
+    """Lista (nome, candidato, camada, extras) a fatiar."""
+    support_off = support_mode == "off" or (support_mode == "auto" and str(info.get("enable_support")) == "0")
+    extra = {"enable_support": "0"} if support_off else {}
+    if support_off and all(all(is_support_key(k) for k in prof["support_candidates"][n]) for n in names):
+        names = names[:1]  # sem suporte, candidatos que só mudam suporte dão o mesmo resultado
+    layers = [None]
+    try:
+        orig = float(info.get("camada") or 0)
+        mine = float(flat("process", prof["process"]).get("layer_height", 0))
+        if orig > mine + 1e-6 and process_for_layer(prof["process"], orig):
+            layers.append(f"{orig:.2f}")
+    except (KeyError, ValueError):
+        pass
+    out = []
+    for n in names:
+        for lay in layers:
+            label = ("sem-suporte" if support_off and len(names) == 1 else n) + (f"@{lay}" if lay else "")
+            out.append((label, n, lay, extra))
+    return out, support_off
+
+
 def auto(args):
     prof = load_profile(args.profile)
+    g_per_hour = args.g_por_hora if args.g_por_hora is not None else prof.get("gramas_por_hora", 10)
+    user_extra = kv_list(args.set)
+    if args.robusto:
+        user_extra.update({"sparse_infill_pattern": "gyroid", "sparse_infill_density": "10%"})
     work = os.path.abspath(args.work)
     dest = os.path.abspath(args.dest)
     rep_dir = os.path.join(dest, "_relatorio")
@@ -472,13 +568,20 @@ def auto(args):
     report = []
     for src in args.files:
         src = os.path.abspath(src)
-        name = os.path.splitext(os.path.basename(src))[0]
+        label_file = os.path.basename(src)
+        name = os.path.splitext(label_file)[0]
         key = re.sub(r"[^\w.-]+", "_", name)
         log(f"\n=== {name}")
-        info = inspect(src)
         notes = []
         w = os.path.join(work, key)
         shutil.rmtree(w, ignore_errors=True)
+        if src.lower().endswith(MESH_EXTS):
+            ext = os.path.splitext(src)[1].lstrip(".").upper()
+            src = import_mesh(src, os.path.join(w, "import"), datadir, prof)
+            notes.append(f"arquivo {ext} sem projeto: linha de base = {MESH_BASE_PROCESS} com suporte em árvore, "
+                         "na orientação do arquivo. Se for peça articulada, refaça com --support off")
+        info = inspect(src)
+        info["enable_support"] = project_settings(src).get("enable_support")
 
         base = run_bambu(src, os.path.join(w, "base"), datadir)
         base_res = analyze_dir(os.path.join(w, "base"))
@@ -496,19 +599,25 @@ def auto(args):
             os.makedirs(fdir, exist_ok=True)
             fil.append(write_preset("filament", mapped, os.path.join(fdir, re.sub(r"[^\w.-]+", "_", mapped) + ".json")))
 
-        cands = {}
         names = args.candidates.split(",") if args.candidates else list(prof["support_candidates"])
-        for cand in names:
-            m, p = build_presets(prof, os.path.join(work, "_presets"), cand)
-            out, d = slice_variant(src, os.path.join(w, cand), datadir, [m, p], fil, multi)
+        variants, support_off = plan_variants(prof, info, names, args.support)
+        if support_off and args.support == "auto":
+            notes.append("o original não usa suporte (talvez peça articulada/print-in-place); "
+                         "suporte mantido desligado. Use --support on para testar com suporte")
+        cands, spec = {}, {}
+        for label, cand, lay, extra in variants:
+            m, p = build_presets(prof, os.path.join(work, "_presets"), cand, {**extra, **user_extra}, layer=lay)
+            out, d = slice_variant(src, os.path.join(w, re.sub(r"[^\w.-]+", "_", label)), datadir, [m, p], fil, multi)
             res = analyze_dir(d)
             res["warnings"] = log_warnings(d)
-            cands[cand] = (out, res)
-            log(describe(res, f"{cand}: "))
-        best = min(cands, key=lambda c: (cands[c][1]["total"]["suporte_g"], cands[c][1]["total"]["peso_g"]))
+            res["custo"] = round(score(res["total"], g_per_hour), 1)
+            cands[label] = (out, res)
+            spec[label] = (cand, lay, extra)
+            log(describe(res, f"{label}: ") + f"  [custo {res['custo']}]")
+        best = min(cands, key=lambda c: cands[c][1]["custo"])
         out, res = cands[best]
 
-        final = os.path.join(dest, os.path.basename(src))
+        final = os.path.join(dest, name + ".3mf")
         diff = finalize(out, final, args.profile)
         ver_dir = os.path.join(w, "verify")
         run_bambu(final, ver_dir, datadir)
@@ -523,16 +632,22 @@ def auto(args):
                 notes.append(f"{pn} tem só {p['altura_mm']} mm: considere 0,20 mm por objeto (objset) para ganhar tempo")
         if multi:
             notes.append(f"troca de cor: torre de purga {res['total']['torre_g']:.1f} g; avalie a versão de 1 cor")
+        bt, at = base_res["total"]["segundos"], res["total"]["segundos"]
+        if bt and at > 1.10 * bt:
+            notes.append(f"tempo subiu {100 * (at - bt) / bt:.0f}% ({fmt_time(bt)} → {fmt_time(at)}); "
+                         f"escolha feita com {g_per_hour:g} g por hora de máquina (--g-por-hora)")
 
-        entry = {"arquivo": os.path.basename(src), "info": info, "base": base_res, "escolhido": best,
-                 "otimizado": res, "candidatos": {c: r[1]["total"] for c, r in cands.items()},
+        entry = {"arquivo": label_file, "info": info, "base": base_res, "escolhido": best,
+                 "otimizado": res, "gramas_por_hora": g_per_hour,
+                 "candidatos": {c: {**r[1]["total"], "custo": r[1]["custo"]} for c, r in cands.items()},
                  "ajustes_alterados": diff, "verificado": ok, "render": img, "notas": notes}
         report.append(entry)
 
         if args.mono and info["pintura"]["paint_color"]:
             mono_src = os.path.join(w, "mono_src.3mf")
             strip_paint(src, mono_src)
-            m, p = build_presets(prof, os.path.join(work, "_presets"), best)
+            cand, lay, extra = spec[best]
+            m, p = build_presets(prof, os.path.join(work, "_presets"), cand, {**extra, **user_extra}, layer=lay)
             mout = run_bambu(mono_src, os.path.join(w, "mono"), datadir, [m, p], fil)
             mres = analyze_dir(os.path.join(w, "mono"))
             mfinal = os.path.join(dest, f"{name} (1 cor).3mf")
@@ -560,6 +675,12 @@ def write_markdown(report):
     if tb:
         L.append(f"| **Total** | **{tb:.0f} g · {fmt_time(sb)}** | **{ta:.0f} g · {fmt_time(sa)}** | | | |")
         L += ["", f"Filamento {100 * (ta - tb) / tb:+.0f}% · tempo {100 * (sa - sb) / max(sb, 1):+.0f}%"]
+    for e in report:
+        L += ["", f"**{e['arquivo']}** — variantes (custo = g + suporte + {e['gramas_por_hora']:g} g/h):", "",
+              "| Variante | Peso | Tempo | Suporte | Custo |", "|---|---|---|---|---|"]
+        for c, t in sorted(e["candidatos"].items(), key=lambda x: x[1]["custo"]):
+            mark = " ✓" if c == e["escolhido"] else ""
+            L.append(f"| {c}{mark} | {t['peso_g']:.1f} g | {fmt_time(t['segundos'])} | {t['suporte_g']:.1f} g | {t['custo']:.1f} |")
     for e in report:
         extra = e["notas"] + ([f"versão 1 cor: {e['mono']['peso_g']:.1f} g · {fmt_time(e['mono']['segundos'])}"] if e.get("mono") else [])
         if extra:
@@ -601,6 +722,11 @@ def main():
     a.add_argument("--work", required=True); a.add_argument("--profile"); a.add_argument("--candidates")
     a.add_argument("--mono", action="store_true", help="gerar também versão de 1 cor quando houver pintura de cor")
     a.add_argument("--no-render", action="store_true")
+    a.add_argument("--support", choices=["auto", "on", "off"], default="auto",
+                   help="auto: desliga se o original não usa suporte (padrão)")
+    a.add_argument("--g-por-hora", type=float, help="gramas que 1 h de máquina vale na escolha (padrão 10)")
+    a.add_argument("--robusto", action="store_true", help="gyroid 10%% em vez de lightning (peças que caem/apanham)")
+    a.add_argument("--set", nargs="*", default=[], help="chave=valor aplicados a todas as variantes")
     args = ap.parse_args()
 
     if args.cmd == "inspect":
@@ -641,7 +767,8 @@ def main():
     elif args.cmd == "strip-paint":
         strip_paint(args.src, args.dst, tuple(args.kind or ["paint_color"]))
     elif args.cmd == "finalize":
-        print(";".join(finalize(args.sliced, args.dst, args.profile)))
+        diff = finalize(args.sliced, args.dst, args.profile)
+        print(f"gravado {args.dst}\najustes marcados como alterados ({len(diff)}): {', '.join(diff)}")
     elif args.cmd == "auto":
         auto(args)
 

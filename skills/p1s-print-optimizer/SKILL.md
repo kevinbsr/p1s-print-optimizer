@@ -43,11 +43,24 @@ grave os resultados numa subpasta nova, como `Otimizado P1S/`.
    S auto <arquivos.3mf> --dest "<pasta do projeto>/Otimizado P1S" --work <scratch>/p1s --mono
    ```
    Para cada arquivo ele: fatia o original (linha de base); converte para a P1S com
-   o perfil `profiles/qualidade-baixo-custo.json` em cada candidato de suporte
-   (`org25`, `org15`); escolhe o de menos suporte; grava o projeto final marcando os
-   ajustes alterados; re-fatia o arquivo final para confirmar os números; gera
-   `_relatorio/relatorio.md`, `relatorio.json` e uma imagem de suportes por peça.
-   `--mono` cria também uma versão de 1 cor quando há pintura de cor.
+   o perfil `profiles/qualidade-baixo-custo.json` em cada variante (candidatos de
+   suporte `org25`/`org15` × camada 0,12 e camada original, quando a original é mais
+   grossa — com o processo oficial dessa camada, ex. "0.16mm Optimal"); escolhe a de
+   menor custo = gramas + gramas de suporte + 10 g por hora de máquina; grava o projeto
+   final marcando os ajustes alterados; re-fatia o arquivo final para confirmar os
+   números; gera `_relatorio/relatorio.md` (com a tabela de variantes), `relatorio.json`
+   e uma imagem de suportes por peça.
+   - `--mono` cria também uma versão de 1 cor quando há pintura de cor.
+   - `--support auto|on|off`: em `auto` (padrão), se o original não usa suporte ele
+     continua desligado. Isso protege peças articuladas/print-in-place, em que suporte
+     entra nas folgas e solda as juntas.
+   - `--g-por-hora N` muda o peso do tempo (0 = só gramas; maior = prioriza tempo,
+     bom para produção em lote).
+   - Também aceita `.stl`, `.obj` e `.step`: monta um projeto da P1S na orientação do
+     arquivo, com linha de base "0.20mm Standard" + suporte em árvore, e segue o fluxo
+     normal (o resultado sai como `<nome>.3mf`). Peças maiores que a mesa são recusadas.
+   - `--robusto` usa gyroid 10% em vez de lightning — chaveiros, brinquedos e peças
+     que caem. `--set chave=valor` aplica ajustes extras a todas as variantes.
 
 3. **Conferir os suportes visualmente** — abra as imagens em `_relatorio/`
    (cinza = peça, vermelho = suporte, vista frontal e lateral). Procure:
@@ -90,6 +103,12 @@ Detalhes e números em `references/ajustes.md`. Resumo:
 | Suporte | árvore orgânica, galho 25° ou 15° | Árvores apoiam na peça em vez de subir da mesa |
 | Costura | atrás | Esconde a emenda nas costas; pintura do autor prevalece |
 
+Cores: o `inspect` mostra o filamento de cada objeto (`extruder` em
+`model_settings.config`) só indiretamente; antes de dizer que a cor mudou, compare
+`filament_colour`, os `extruder` por objeto e as trocas no G-code (`M620 S<n>A`)
+entre o original e o otimizado. Muitos projetos multicor imprimem partes em placas
+separadas (ex.: corpo numa cor, olhos pintados em outra placa) e montam depois.
+
 Trade-offs a mencionar sempre: lightning deixa a peça mais leve e frágil a quedas
 (se o usuário preferir peso/robustez, `--set sparse_infill_pattern=gyroid
 sparse_infill_density=5%` custa ~18 g a mais por figura); projetos que estavam em
@@ -126,3 +145,10 @@ S setproj X.3mf Y.3mf chave=valor       # altera o project_settings.config
 S strip-paint X.3mf Y.3mf --kind paint_color
 S presets --out DIR --candidate org25   # gera os JSON de máquina/processo
 ```
+
+## Atalho no Flea
+
+`~/.local/bin/p1s-otimizar` roda o `auto` em segundo plano (unidade transitória do
+systemd, prioridade baixa, uma execução por vez) e avisa por notificação. No Flea,
+botão direito → **Run script → Otimizar para P1S** ou **Otimizar para P1S (resistente)**
+(`~/.config/flea/scripts/`). Logs em `~/.cache/p1s-otimizar/`.

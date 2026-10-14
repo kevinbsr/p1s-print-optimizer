@@ -5,6 +5,10 @@ Todos os números abaixo vieram do Bambu Studio 02.08.02.61 (CLI), PLA, bico
 malhas de 1–2 milhões de triângulos). Primeiro foi medido um ajuste por vez na
 peça G (base: 102,0 g · 3h40, camada 0,16 mm) e depois o conjunto.
 
+> Os gramas **por tipo** citados nas observações (suporte, casca flutuante,
+> preenchimento) foram medidos com o analisador antigo, que inflava esses valores
+> (ver `armadilhas.md`). Pesos e tempos totais estão corretos.
+
 ## Efeito isolado de cada ajuste (peça G)
 
 | Variação | Peso | Tempo | Observação |

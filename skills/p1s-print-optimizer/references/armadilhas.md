@@ -32,6 +32,13 @@ preparação e pode deixar borrões. Solução (feita por `auto` e `slice --towe
 
 Mexa em `tree_support_branch_angle` e confira sempre a imagem.
 
+## Peças articuladas sem suporte
+
+Projetos print-in-place (articulados, correntes, dobradiças) vêm com
+`enable_support=0`. Ligar suporte ali preenche as folgas e solda as juntas. O `auto`
+mantém desligado quando o original está assim (`--support auto`). Mudar a camada
+também mexe nas folgas verticais; o `auto` sempre testa a camada original junto.
+
 ## Pinturas do autor prevalecem
 
 Suportes pintados (`paint_supports`) e costuras pintadas (`paint_seam`) continuam
@@ -61,3 +68,11 @@ biblioteca padrão.
 
 `; filament_density: 1.26` usa dois-pontos no cabeçalho e `=` no bloco de
 configuração no fim do arquivo. O analisador aceita os dois.
+
+## Gramas por tipo de extrusão (corrigido)
+
+Até 2026-10-14 o `analyze` somava como extrusão o avanço que devolve o filamento
+depois de cada retração, inflando os valores por tipo em 30–75% (os totais por placa
+vêm do cabeçalho e sempre estiveram certos). Agora a retração é descontada e a soma
+por tipo fecha com o total. Números por tipo antigos em `ajustes.md` estão inflados;
+as conclusões de peso e tempo totais continuam válidas.
