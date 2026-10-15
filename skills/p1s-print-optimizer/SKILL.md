@@ -114,6 +114,27 @@ Trade-offs a mencionar sempre: lightning deixa a peça mais leve e frágil a que
 sparse_infill_density=5%` custa ~18 g a mais por figura); projetos que estavam em
 0,08 mm ficam um pouco menos lisos em 0,12 mm.
 
+## Peças multicor com relevo (escudos, logos, plaquinhas)
+
+Peso e tempo não bastam aqui: o defeito vem de detalhe fino demais e de viagens demais.
+Detalhes e números em `references/qualidade-relevo.md`.
+
+- **Antes de fatiar, meça o desenho.** Traços mais finos que 0,8 mm (2 linhas no bico 0,4)
+  e ilhas menores que cerca de 1 mm² saem como bolinhas e falhas. Se uma cor passar de cerca de
+  10 % de área fina, avise antes de imprimir: aumente a peça, simplifique o desenho ou use o bico
+  de 0,2 mm (medido: cerca de 3× o tempo).
+- **Use `--profile profiles/relevo-multicor.json`**: camada 0,20 (não multiplica trocas de cor),
+  `reduce_crossing_wall`, preenchimento de vãos a 50 mm/s e paredes internas a 150 mm/s.
+- **Não misture** peças de uma cor só (aros, bases) com peças multicor na mesma placa:
+  somam trocas e recebem respingos de outras cores. Agrupe por cor de fundo.
+- **Leia a linha `qualidade:` do `analyze`.** Ela traz as trocas de cor, o pico de recolhimentos e
+  de trechos curtos por camada e o número de peças, e avisa acima do limite calibrado
+  (40 por peça). Relate os avisos ao usuário.
+- **Fiapos também são físicos:** filamento úmido e temperatura alta. Sugira secar o filamento e
+  baixar 5–10 °C; isso o fatiador não mede.
+- **Quando o usuário mandar fotos da impressão,** associe cada defeito a uma causa medida
+  (tabela em `references/qualidade-relevo.md`), mude uma coisa de cada vez e meça de novo.
+
 ## Armadilhas conhecidas
 
 Ver `references/armadilhas.md` antes de improvisar. As principais:
@@ -139,7 +160,7 @@ mapeados pelo nome-base para a versão oficial compatível com a máquina alvo.
 ```
 S slice X.3mf --out DIR --raw          # fatia como está (linha de base)
 S slice X.3mf --out DIR --candidate org15 --set chave=valor ...
-S analyze DIR...                        # gramas por tipo de extrusão, tempo, altura
+S analyze DIR...                        # gramas por tipo, tempo, altura e linha de qualidade
 S render DIR --out suportes.png
 S setproj X.3mf Y.3mf chave=valor       # altera o project_settings.config
 S strip-paint X.3mf Y.3mf --kind paint_color

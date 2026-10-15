@@ -272,21 +272,35 @@ def log_warnings(outdir):
 NUM = re.compile(r" E(-?[\d.]+)")
 
 
+XY = re.compile(r" ([XY])(-?[\d.]+)")
+NO_PATH = ("Prime tower", "Custom", "Flush", "?")  # purga e movimentos da troca não são peça
+TINY_PER_NOZZLE = 3.75   # trecho menor que 3,75 × bico (1,5 mm no bico 0,4) = detalhe que o bico não desenha bem
+
+
 def analyze_gcode(path):
     feat, rel, last, maxz = "?", True, 0.0, 0.0
     retracted = 0.0  # filamento recolhido; o avanço que o devolve não é extrusão nova
     ext, hdr = {}, {}
-    density, diam = [1.24], 1.75
+    density, diam, nozzle = [1.24], 1.75, 0.4
+    # qualidade: trechos minúsculos, recolhimentos por camada, camadas com troca de cor
+    x = y = 0.0
+    path_len, z, tiny_layer = 0.0, 0.0, {}
+    retr_layer, change_layers, changes, objects = {}, set(), 0, set()
     with open(path, errors="replace") as f:
         for line in f:
             c = line[0]
             if c == ";":
                 if line.startswith("; FEATURE: "):
                     feat = line[11:].strip()
+                elif line.startswith("; start printing object, unique label id: "):
+                    objects.add(line.rsplit(":", 1)[1].strip())
                 elif line.startswith("; Z_HEIGHT: "):
-                    maxz = max(maxz, float(line[12:]))
+                    z = float(line[12:])
+                    maxz = max(maxz, z)
                 elif line.startswith("; filament_density"):
                     density = [float(x) for x in re.split(r"[,;]", re.split(r"[:=]", line, maxsplit=1)[1]) if x.strip()]
+                elif line.startswith("; nozzle_diameter"):
+                    nozzle = float(re.split(r"[,;]", re.split(r"[:=]", line, maxsplit=1)[1])[0])
                 elif line.startswith("; filament_diameter"):
                     diam = float(re.split(r"[,;]", re.split(r"[:=]", line, maxsplit=1)[1])[0])
                 elif line.startswith("; model printing time"):
@@ -299,24 +313,44 @@ def analyze_gcode(path):
                     hdr["camadas"] = int(line.split(":", 1)[1])
                 continue
             if c == "M":
+                if line.startswith("M620 S") and line[6:7].isdigit() and not line.startswith("M620 S255"):
+                    changes += 1
+                    change_layers.add(round(z, 2))
                 if line.startswith("M83"):
                     rel = True
                 elif line.startswith("M82"):
                     rel = False
             elif c == "G":
-                if line.startswith(("G1 ", "G2 ", "G3 ")):
+                if line.startswith(("G0 ", "G1 ", "G2 ", "G3 ")):
+                    nx, ny = x, y
+                    for ax, v in XY.findall(line):
+                        if ax == "X":
+                            nx = float(v)
+                        else:
+                            ny = float(v)
                     m = NUM.search(line)
+                    extruding = False
                     if m:
                         e = float(m.group(1))
                         if not rel:
                             e, last = e - last, e
                         if e < 0:
+                            if retracted < 0.01:   # conta o evento, não cada pedaço do wipe
+                                retr_layer[round(z, 2)] = retr_layer.get(round(z, 2), 0) + 1
                             retracted -= e
                         elif e > 0:
                             back = min(e, retracted)
                             retracted -= back
                             if e > back:
                                 ext[feat] = ext.get(feat, 0.0) + e - back
+                                extruding = (nx, ny) != (x, y)
+                    if extruding and feat not in NO_PATH:
+                        path_len += math.hypot(nx - x, ny - y)
+                    elif (nx, ny) != (x, y):   # deslocamento sem extrusão fecha o trecho
+                        if 0 < path_len < TINY_PER_NOZZLE * nozzle:
+                            tiny_layer[round(z, 2)] = tiny_layer.get(round(z, 2), 0) + 1
+                        path_len = 0.0
+                    x, y = nx, ny
                 elif line.startswith("G92") and " E" in line:
                     last = 0.0
     k = math.pi * (diam / 2) ** 2 * (sum(density) / len(density)) / 1000
@@ -330,7 +364,40 @@ def analyze_gcode(path):
         "suporte_g": round(sum(v for a, v in feats.items() if a.startswith("Support")), 2),
         "torre_g": feats.get("Prime tower", 0.0),
         "por_tipo_g": feats,
+        "qualidade": {
+            "pecas": max(len(objects), 1),
+            "bico_mm": nozzle,
+            "trocas_de_cor": max(0, changes - 1),   # a primeira carga não é troca
+            "camadas_com_troca": len(change_layers),
+            "recolhimentos_max_camada": max(retr_layer.values(), default=0),
+            "trechos_minusculos": sum(tiny_layer.values()),
+            "trechos_minusculos_max_camada": max(tiny_layer.values(), default=0),
+        },
     }
+
+
+def quality_notes(name, p):
+    """Avisos de acabamento tirados do G-code: o que costuma virar bolinha, falha, fiapo ou respingo."""
+    q, n = p.get("qualidade") or {}, []
+    layers = max(p.get("camadas") or 1, 1)
+    pecas = q.get("pecas", 1)
+    # limites por peça e por camada, calibrados em 2026-10-15: aros lisos ≈ 6 trechos e 16 recolhimentos;
+    # escudos com detalhe que saíram com falhas e fiapos ≈ 60–140 de cada
+    # calibrado no bico 0,4; no 0,2 os detalhes finos são impressos de verdade e geram muitos trechos curtos
+    if q.get("bico_mm", 0.4) >= 0.4 and q.get("trechos_minusculos_max_camada", 0) > 40 * pecas:
+        n.append(f"{name}: até {q['trechos_minusculos_max_camada']} trechos de extrusão curtos (< {TINY_PER_NOZZLE * q.get('bico_mm', 0.4):g} mm) numa camada "
+                 f"({pecas} peças) — detalhes menores que o bico saem como bolinhas e falhas; engrosse-os para "
+                 "0,8 mm (2 linhas) ou aumente a peça")
+    if q.get("recolhimentos_max_camada", 0) > 40 * pecas:
+        n.append(f"{name}: até {q['recolhimentos_max_camada']} recolhimentos numa camada ({pecas} peças) — risco de fiapos; "
+                 "use o perfil relevo-multicor (evitar cruzar paredes), filamento seco e 5–10 °C a menos")
+    if q.get("trocas_de_cor", 0) > 30 and q.get("camadas_com_troca", 0) > 0.6 * layers:
+        n.append(f"{name}: troca de cor em {q['camadas_com_troca']} de {layers} camadas — peças de uma cor só (aros, bases) "
+                 "na placa de peças multicor somam trocas e recebem respingos de outras cores; separe-as por cor")
+    gap = p.get("por_tipo_g", {}).get("Gap infill", 0)
+    if gap > 0.03 * max(p.get("peso_g", 0) - p.get("torre_g", 0), 0.1):
+        n.append(f"{name}: {gap:.1f} g de preenchimento de vãos — áreas estreitas; mantenha gap_infill_speed baixo (≤ 50 mm/s)")
+    return n
 
 
 def parse_time(s):
@@ -365,6 +432,12 @@ def describe(res, label=""):
     for n, p in res["placas"].items():
         top = "  ".join(f"{a}={v:.1f}g" for a, v in list(p["por_tipo_g"].items())[:8] if v >= 0.3)
         lines.append(f"   {n}: {p['peso_g']:.1f} g · {p['tempo']} · {p['camadas']} camadas · {p['altura_mm']} mm | {top}")
+        q = p.get("qualidade") or {}
+        if q:
+            lines.append(f"      qualidade: {q['trocas_de_cor']} trocas em {q['camadas_com_troca']} camadas · "
+                         f"até {q['recolhimentos_max_camada']} recolhimentos e {q['trechos_minusculos_max_camada']} trechos curtos "
+                         f"por camada · {q['pecas']} peças")
+        lines += [f"      ⚠ {w}" for w in quality_notes(n, p)]
     return "\n".join(lines)
 
 
@@ -385,6 +458,8 @@ def render(d, out):
             for line in f:
                 if line.startswith("; FEATURE: "):
                     feat = line[11:].strip()
+                elif line.startswith("; start printing object, unique label id: "):
+                    objects.add(line.rsplit(":", 1)[1].strip())
                 elif line.startswith("; Z_HEIGHT: "):
                     z = float(line[12:])
                 elif line.startswith(("G1 ", "G2 ", "G3 ")):
@@ -632,6 +707,8 @@ def auto(args):
                 notes.append(f"{pn} tem só {p['altura_mm']} mm: considere 0,20 mm por objeto (objset) para ganhar tempo")
         if multi:
             notes.append(f"troca de cor: torre de purga {res['total']['torre_g']:.1f} g; avalie a versão de 1 cor")
+        for pn, p in res["placas"].items():
+            notes += quality_notes(pn, p)
         bt, at = base_res["total"]["segundos"], res["total"]["segundos"]
         if bt and at > 1.10 * bt:
             notes.append(f"tempo subiu {100 * (at - bt) / bt:.0f}% ({fmt_time(bt)} → {fmt_time(at)}); "
@@ -736,6 +813,7 @@ def main():
         prof = load_profile(args.profile)
         print("\n".join(build_presets(prof, args.out, args.candidate, kv_list(args.set))))
     elif args.cmd == "slice":
+        args.out = os.path.abspath(args.out)   # a CLI do Bambu roda em outro diretório e não acharia presets relativos
         datadir = args.datadir or os.path.join(os.path.abspath(args.out), "_datadir")
         os.makedirs(datadir, exist_ok=True)
         if args.raw:

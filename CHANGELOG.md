@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 — 2026-10-15
+
+- `analyze` e `auto` medem a qualidade no G-code: trocas de cor, camadas com troca,
+  pico de recolhimentos e de trechos curtos por camada e número de peças. Avisos
+  calibrados numa impressão real de escudos multicor (falhas, fiapos, respingos).
+- Perfil `relevo-multicor` para escudos, logos e plaquinhas no bico 0,4.
+- `references/qualidade-relevo.md`: sintomas, causas medidas, regras de desenho,
+  comparação entre bico 0,4 e 0,2 e o que não funcionou.
+- Correção: `slice --out` com caminho relativo não achava os presets.
+
 ## 0.2.0 — 2026-10-14
 
 - `auto` mantém o suporte desligado quando o original não usa suporte (peças
