@@ -390,13 +390,13 @@ def quality_notes(name, p):
                  "0,8 mm (2 linhas) ou aumente a peça")
     if q.get("recolhimentos_max_camada", 0) > 40 * pecas:
         n.append(f"{name}: até {q['recolhimentos_max_camada']} recolhimentos numa camada ({pecas} peças) — risco de fiapos; "
-                 "use o perfil relevo-multicor (evitar cruzar paredes), filamento seco e 5–10 °C a menos")
+                 "seque o filamento (umidade foi a causa confirmada em fóruns da Bambu)")
     if q.get("trocas_de_cor", 0) > 30 and q.get("camadas_com_troca", 0) > 0.6 * layers:
         n.append(f"{name}: troca de cor em {q['camadas_com_troca']} de {layers} camadas — peças de uma cor só (aros, bases) "
                  "na placa de peças multicor somam trocas e recebem respingos de outras cores; separe-as por cor")
     gap = p.get("por_tipo_g", {}).get("Gap infill", 0)
     if gap > 0.03 * max(p.get("peso_g", 0) - p.get("torre_g", 0), 0.1):
-        n.append(f"{name}: {gap:.1f} g de preenchimento de vãos — áreas estreitas; mantenha gap_infill_speed baixo (≤ 50 mm/s)")
+        n.append(f"{name}: {gap:.1f} g de preenchimento de vãos — áreas estreitas; traços finos demais para o bico; veja references/qualidade-relevo.md")
     return n
 
 
@@ -458,8 +458,6 @@ def render(d, out):
             for line in f:
                 if line.startswith("; FEATURE: "):
                     feat = line[11:].strip()
-                elif line.startswith("; start printing object, unique label id: "):
-                    objects.add(line.rsplit(":", 1)[1].strip())
                 elif line.startswith("; Z_HEIGHT: "):
                     z = float(line[12:])
                 elif line.startswith(("G1 ", "G2 ", "G3 ")):

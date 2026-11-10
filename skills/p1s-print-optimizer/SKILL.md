@@ -116,24 +116,20 @@ sparse_infill_density=5%` custa ~18 g a mais por figura); projetos que estavam e
 
 ## Peças multicor com relevo (escudos, logos, plaquinhas)
 
-Peso e tempo não bastam aqui: o defeito vem de detalhe fino demais e de viagens demais.
-Detalhes e números em `references/qualidade-relevo.md`.
+Peso e tempo não bastam aqui: o defeito vem do topo das áreas pequenas de cor e de traços finos demais.
+Detalhes, fotos descritas e o que não funcionou em `references/qualidade-relevo.md`.
 
-- **Antes de fatiar, meça o desenho.** Traços mais finos que 0,8 mm (2 linhas no bico 0,4)
-  e ilhas menores que cerca de 1 mm² saem como bolinhas e falhas. Se uma cor passar de cerca de
-  10 % de área fina, avise antes de imprimir: aumente a peça, simplifique o desenho ou use o bico
-  de 0,2 mm (medido: cerca de 3× o tempo).
-- **Use `--profile profiles/relevo-multicor.json`**: camada 0,20 (não multiplica trocas de cor),
-  `reduce_crossing_wall`, preenchimento de vãos a 50 mm/s e paredes internas a 150 mm/s.
-- **Não misture** peças de uma cor só (aros, bases) com peças multicor na mesma placa:
-  somam trocas e recebem respingos de outras cores. Agrupe por cor de fundo.
-- **Leia a linha `qualidade:` do `analyze`.** Ela traz as trocas de cor, o pico de recolhimentos e
-  de trechos curtos por camada e o número de peças, e avisa acima do limite calibrado
-  (40 por peça). Relate os avisos ao usuário.
-- **Fiapos também são físicos:** filamento úmido e temperatura alta. Sugira secar o filamento e
-  baixar 5–10 °C; isso o fatiador não mede.
-- **Quando o usuário mandar fotos da impressão,** associe cada defeito a uma causa medida
-  (tabela em `references/qualidade-relevo.md`), mude uma coisa de cada vez e meça de novo.
+- **Use `--profile profiles/relevo-multicor.json`**, validado em impressão: perfil padrão da Bambu com
+  ferro em todos os topos (fluxo 20 %, 60 mm/s) e linha do topo de 0,30. Sem o ferro, os campos de cor
+  saíram ásperos e com furos.
+- **Meça o desenho antes.** Traços mais finos que 0,8 mm (2 linhas no bico 0,4) viram bolhas. Engrosse
+  só os traços finos e preserve os vãos entre eles; engrossar tudo por igual fecha os vãos e vira mancha.
+- **Não misture** peças de uma cor só (aros, bases) com peças multicor na mesma placa: somam trocas e
+  recebem respingos de outras cores. Agrupe por cor de fundo.
+- **Filamento úmido** foi a causa confirmada em fóruns para topos ruins em incrustações pequenas.
+- **Teste antes do lote:** uma placa com a mesma peça repetida e uma variação por peça
+  (ajustes por objeto no `model_settings.config`) responde mais rápido do que uma mudança por impressão.
+  Não apresente ajuste como correção sem impressão que o confirme.
 
 ## Armadilhas conhecidas
 

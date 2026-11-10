@@ -6,12 +6,41 @@ O Botafogo saiu limpo. O Vasco saiu com falhas, bolinhas e fiapos.
 
 ## Diagnóstico pelas fotos
 
+> **Atenção (2026-10-15, à noite):** as correções desta tabela vieram de métricas do G-code e de
+> raciocínio, sem impressão de teste. O disco do Fluminense impresso com elas (perfil `relevo-multicor`)
+> saiu tão ruim quanto o Vasco: topos ásperos nas áreas pequenas e monograma quebrado. Trate as
+> correções como hipóteses. A técnica mais usada pela comunidade é outra: escudo **embutido rente** e
+> peça impressa **com a face para baixo**, com as cores nas primeiras camadas. Ela foi testada e
+> descartada (ver "Confirmado em impressão").
+
 | Sintoma na foto | Causa medida | Correção |
 |---|---|---|
 | Falhas e bolinhas nos detalhes (letras, cordame, casco) | 41 % do branco e 92 % do dourado do Vasco eram mais finos que 0,8 mm (2 linhas de bico). No G-code, o disco do Vasco tinha cerca de 400 trechos curtos, contra cerca de 200 no do Botafogo | Desenho: traços ≥ 0,8 mm (aceitável ≥ 0,4 mm) e ilhas ≥ 1 mm². Ou peça maior. Ou bico de 0,2 mm |
 | Fiapos finos sobre o relevo | Até cerca de 700 recolhimentos numa camada (14 peças), com viagens cruzando o relevo, PLA genérico a 220 °C e filamento possivelmente úmido | Perfil `relevo-multicor` (`reduce_crossing_wall=1`), filamento seco, 5–10 °C a menos |
 | Furos em áreas estreitas | Preenchimento de vãos a 250 mm/s em regiões de 0,5–1 mm | `gap_infill_speed=50` |
 | Respingo de outra cor em peça de uma cor só | Aro preto na mesma placa de discos multicor: a troca de cor acontece com o aro já impresso ao lado | Peças de uma cor só em placa separada, ou na placa da mesma cor de fundo |
+
+## Confirmado em impressão (Fluminense, 2026-10-16)
+
+Placa com 4 discos iguais, face para cima, perfil padrão `0.20mm Standard @BBL X1C` e uma variação por disco:
+
+| Disco | Variação | Resultado |
+|---|---|---|
+| 1 | padrão Bambu | campos ásperos, borda pontilhada (mesmo defeito de antes) |
+| 2 | `ironing_type=topmost` | campos lisos |
+| 3 | ironing + Arachne | campos lisos |
+| 4 | ironing + `top_surface_line_width=0.3` | **melhor**, escolhido pelo usuário |
+
+- O ferro só no topo resolveu os campos de cor. O monograma fino continuou ilegível em todos: isso é desenho, não fatiador.
+- Escudo embutido com a face para baixo também foi impresso: melhor que o relevo sem ferro, mas com furos no
+  branco e no verde e sem o relevo, que é o atrativo do produto. Descartado.
+- Engrossar tudo por igual (buffer em todo o branco) fecha os vãos entre letras e vira mancha. Engrossar
+  só os traços finos e preservar vãos de pelo menos 0,6 mm (`fonte/fat2.py`) mantém a leitura.
+- Teste 3 (1 disco, monograma engrossado seletivamente para cerca de 0,9 mm): o melhor até agora. O usuário
+  ajustou o ferro no Bambu Studio para todos os topos (`top`), fluxo 20 % e 60 mm/s. Esse é o perfil
+  `relevo-multicor`. Ainda há pontos a melhorar, sem causa medida.
+- Uma generalização do engrosso seletivo para escudos com várias cores de detalhe (Vasco) apagou a borda e
+  embolou a caravela na prévia. Não use sem revisar.
 
 ## Regras de desenho para relevo multicor no bico de 0,4 mm
 
@@ -21,7 +50,7 @@ O Botafogo saiu limpo. O Vasco saiu com falhas, bolinhas e fiapos.
 - Medir antes de fatiar: % da área de cada cor mais fina que 0,8 mm (abertura morfológica).
   Acima de cerca de 10 % numa cor, o resultado vai sair com falhas.
 - Engrossar automaticamente funciona até certo ponto. No Vasco, fechar vãos de até 0,5 mm destruiu a
-  caravela (o desenho é feito de linhas pretas finas). O meio-termo útil foi fechar vãos de 0,24 mm,
+  caravela na prévia renderizada (não foi impresso) (o desenho é feito de linhas pretas finas). O meio-termo útil foi fechar vãos de 0,24 mm,
   engrossar 0,12 mm e descartar ilhas de 0,3 mm². Isso preserva o desenho, mas melhora pouco no G-code.
   Para escudos desse nível de detalhe, a solução real é peça maior, bico de 0,2 mm ou desenho simplificado à mão.
 
