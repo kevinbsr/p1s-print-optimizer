@@ -90,6 +90,14 @@ grave os resultados numa subpasta nova, como `Otimizado P1S/`.
    não foi aberto na interface gráfica. Recomende imprimir uma peça de teste antes
    de produzir em lote.
 
+## Calibração medida da P1S
+
+Veja `references/calibracao-p1s.md` (fonte: `~/Documents/WERX/Calibração P1S/RESULTADOS.md`). Em resumo:
+- Medidas externas dentro de ±0,1 mm; fluxo padrão (0,98) certo; ferro 60/20.
+- **Furos saem ~0,23 mm menores:** para encaixe, some +0,2 mm (≥6 mm) ou +0,3 mm (≤5 mm),
+  ou use `--set xy_hole_compensation=0.1`.
+- **Fiapos** com filamento Voolt3D no perfil Bambu PLA Basic: a torre de temperatura está pendente.
+
 ## O que o perfil muda e por quê
 
 Detalhes e números em `references/ajustes.md`. Resumo:
